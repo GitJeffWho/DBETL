@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 # For logging, PPE built on multiprocessing
 from collections import defaultdict
+from dotenv import load_dotenv
 import logging
 import logging.handlers
 from MergeTracker import *
@@ -327,7 +328,7 @@ def apply_foreign_key_constraints(target_conn, source_conn, table_names, source_
                         target_conn.commit()
                         logging.info(f"Added foreign key {fk_name} to table {table_name}")
                     except pyodbc.Error as e:
-                        logging.info(f"Error adding foreign key {fk_name} to table {table_name}: {str(e)}")
+                        logging.warning(f"Error adding foreign key {fk_name} to table {table_name}: {str(e)}")
                         target_conn.rollback()
 
                         # Attempt to add the constraint with NOCHECK
@@ -348,7 +349,7 @@ def apply_foreign_key_constraints(target_conn, source_conn, table_names, source_
                             target_conn.commit()
                             logging.info(f"Added NOCHECK foreign key {fk_name} to table {table_name}")
                         except pyodbc.Error as e2:
-                            logging.info(
+                            logging.error(
                                 f"Error adding NOCHECK foreign key {fk_name} to table {table_name}: {str(e2)}")
                             target_conn.rollback()
 
@@ -1070,7 +1071,7 @@ def batch_merge(target_conn_str, merge_query, rows, columns, table_name, target_
 
             except pyodbc.IntegrityError as e:
                 error_message = str(e)
-                logging.error(error_message)
+                logging.warning(error_message)
                 if "Violation of UNIQUE KEY constraint" in error_message:
                     # Extract the constraint name
                     constraint_match = re.search(r"Violation of UNIQUE KEY constraint '(.+?)'", error_message)
@@ -1251,20 +1252,24 @@ def main():
 
     try:
         # Initializations
+        # Load environment variables from .env file
+        load_dotenv(r'')
+
+        # Leave default pooling, up to 100 (will reuse connections, should never run into issues)
         pyodbc.pooling = True
 
-        source_server_name = ''
-        source_database_name = ''
+        source_server_name = os.getenv('SOURCE_SERVER')
+        source_database_name = os.getenv('SOURCE_DATABASE')
         source_schema_name = ''
 
-        target_server_name = ''
-        target_database_name = ''
+        target_server_name = os.getenv('TARGET_SERVER')
+        target_database_name = os.getenv('TARGET_DATABASE')
         target_schema_name = ''
 
         contains_image = []
 
-        source_username = ''
-        source_password = ''
+        source_username = os.getenv('SOURCE_USERNAME')
+        source_password = os.getenv('SOURCE_PASSWORD')
 
         # Connection parameters for the source and target databases
         # Change the driver based on what's appropriate, originally designed for SQL Server
@@ -1344,7 +1349,7 @@ def main():
         logging.info("Starting parallel table and chunk copy operations")
 
         # Opening and closing the connections for table copying (handled in wrapper)
-        with ProcessPoolExecutor(max_workers=20) as table_executor:
+        with ProcessPoolExecutor(max_workers=30) as table_executor:
             # Submit all table copy jobs to the executor
             future_to_table = {table_executor.submit(copy_table_wrapper, args): args[0] for args in task_args}
 
@@ -1369,7 +1374,7 @@ def main():
         logging.info(f"Starting parallel constraint application for {len(constraint_args)} tables")
 
         # PPE implementation here
-        with ProcessPoolExecutor(max_workers=20) as constraint_executor:
+        with ProcessPoolExecutor(max_workers=30) as constraint_executor:
             # Submit all constraint application jobs to the executor
             future_to_table = {constraint_executor.submit(apply_constraint_wrapper, args): args[0]
                                for args in constraint_args}

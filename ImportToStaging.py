@@ -4,6 +4,7 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from collections import defaultdict
+from dotenv import load_dotenv
 import logging
 import logging.handlers
 import sys
@@ -23,7 +24,6 @@ import sys
 # ProcessPoolExecutor for true interpreter splits on threads to workaround GIL, fixed computation/ram issues
 # Limited workers to avoid memory issues
 # With V8, added table chunking for consistent times and leveling out tables
-# Most comments are in the MergeToStaging.py file, refer to that for more function docstrings
 
 # Future:
 # Add multithreading to the initial chunk creation (per table, not per chunk)
@@ -38,6 +38,7 @@ def configure_logging():
     """
     Configure the root logger for the main process.
     """
+
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
 
@@ -47,7 +48,7 @@ def configure_logging():
             root_logger.removeHandler(handler)
 
     # Add file handler
-    file_handler = logging.FileHandler("logfile.log", mode='w')
+    file_handler = logging.FileHandler(r"logfile.log", mode='w')
     file_formatter = logging.Formatter('%(asctime)s - %(processName)s - %(levelname)s - %(message)s')
     file_handler.setFormatter(file_formatter)
     root_logger.addHandler(file_handler)
@@ -838,21 +839,24 @@ def main():
 
     try:
         # Initializations
+        # Load environment variables from .env file
+        load_dotenv(r'')
+
         # Leave default pooling, up to 100 (will reuse connections, should never run into issues)
         pyodbc.pooling = True
 
-        source_server_name = ''
-        source_database_name = ''
+        source_server_name = os.getenv('SOURCE_SERVER')
+        source_database_name = os.getenv('SOURCE_DATABASE')
         source_schema_name = ''
 
-        target_server_name = ''
-        target_database_name = ''
+        target_server_name = os.getenv('TARGET_SERVER')
+        target_database_name = os.getenv('TARGET_DATABASE')
         target_schema_name = ''
 
         contains_image = []
 
-        source_username = ''
-        source_password = ''
+        source_username = os.getenv('SOURCE_USERNAME')
+        source_password = os.getenv('SOURCE_PASSWORD')
 
         # Connection parameters for the source and target databases
         source_conn_str = (
@@ -871,7 +875,7 @@ def main():
         )
 
         cwd = ''
-        table_names_path = os.path.join(cwd, 'txtfiles', 'StagingTables.txt')
+        table_names_path = os.path.join(cwd, '')
         table_names = read_table_names(table_names_path)
 
         logging.info(f"Found {len(table_names)} tables to migrate")
@@ -908,7 +912,7 @@ def main():
         # Processpool for the table/chunk copy jobs (threadpool runs into GIL)
         logging.info("Starting parallel table and chunk copy operations")
 
-        with ProcessPoolExecutor(max_workers=20) as table_executor:
+        with ProcessPoolExecutor(max_workers=30) as table_executor:
             # Submit all table copy jobs to the executor
             future_to_table = {table_executor.submit(copy_table_wrapper, args): args[0] for args in task_args}
 
@@ -933,7 +937,7 @@ def main():
         logging.info(f"Starting parallel constraint application for {len(constraint_args)} tables")
 
         # PPE implementation here
-        with ProcessPoolExecutor(max_workers=20) as constraint_executor:
+        with ProcessPoolExecutor(max_workers=30) as constraint_executor:
             # Submit all constraint application jobs to the executor
             future_to_table = {constraint_executor.submit(apply_constraint_wrapper, args): args[0]
                                for args in constraint_args}
